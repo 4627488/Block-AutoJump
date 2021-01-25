@@ -17,7 +17,6 @@ using namespace Gdiplus;
 
 struct block {
     double x1, y1, x2, y2;
-    double vy, vx;
     friend bool operator==(block a, block b)
     {
         return a.y2 == b.y2 && a.x2 == b.x2;
@@ -27,30 +26,6 @@ struct block {
         if (a.x1 <= x2 && x1 <= a.x2 && a.y2 >= y1 && y2 >= a.y1) {
             return 0;
         }
-        /*if (a.x1 <= x2 && x1 <= a.x2) {
-            if (a.y2 < y1) {
-                return y1 - a.y2;
-            } else if (y2 < a.y1) {
-                return a.y1 - y2;
-            } else {
-                return 0;
-            }
-        } else if (a.y1 <= y2 && y1 <= a.y2) {
-            if (a.x2 < x1) {  
-                return x1 - a.x2;
-            } else if (x2 < a.x1) {
-                return a.x1 - x2;
-            } else {
-                return 0;
-            }
-        } else {
-            int lenx, leny;
-            if (a.x1 < x1 && a.y1 < y1) {
-                lenx = a.x2 - x1;
-                lenx = a.y2 - x1;
-            }
-            return sqrt(lenx * lenx + leny * leny);
-        }*/
         int lenx, leny;
         double ans = 0x3f3f3f3f;
         lenx = a.x1 - x1;
@@ -103,6 +78,14 @@ struct block {
         ans = min(ans, sqrt(lenx * lenx + leny * leny * 1.0));
         return ans;
     }
+    block(double _x1, double _y1, double _x2, double _y2)
+    {
+        x1 = _x1;
+        y1 = _y1;
+        x2 = _x2;
+        y2 = _y2;
+    }
+    block() { }
 };
 
 vector<block> wall;
@@ -117,8 +100,15 @@ inline bool isred(int r, int g, int b)
 
 block man;
 int height, width;
-const double vx = 75.97137, vy = -391.86, g = 466.5; //pixel/s pixel/s pixel/s^2 以向下（y增大）为正方向
-const double startTime = 0.85; //s
+const double vx = 75.97137;
+const double cannotJumpTime = 0.85;
+
+//表示起跳t秒后y的偏移量
+inline double xy(double t)
+{
+    return 196.163265 * t * t - 387.28571 * t;
+}
+
 inline void readImg()
 {
     GdiplusStartupInput gdiplusstartupinput;
@@ -214,76 +204,91 @@ inline void readImg()
     GdiplusShutdown(gdiplustoken);
 }
 
-inline block passtime(block pos, double s)
+inline double getWallDis(block pos)
 {
-    block ans;
-    //x=v0t+gt^2/2
-    for (double ss = 0; ss <= s; ss += 0.05) {
-        double xy = pos.vy * s + g * s * s / 2;
-        ans = block {
-            pos.x1 + s * pos.vx,
-            pos.y1 + xy,
-            pos.x2 + s * pos.vx,
-            pos.y2 + xy,
-            pos.vy + s * g,
-            pos.vx
-        };
-        if (pos.x2 > width || pos.x1 < 0) {
-            return block { -1 };
-        }
-        if (pos.y2 > height || pos.y1 < 0) {
-            return block { -1 };
-        }
-        for (int i = 0; i < wall.size(); i++)
-            if (ans.distance(wall[i]) <= 0) {
-                //不能到达
-                cout << "Not" << endl;
-                cout << pos.x1 << " " << pos.y1 << " " << pos.x2 << " " << pos.y2 << endl;
-                return block { -1 };
-            }
+    vector<block>::iterator it = wall.begin();
+    double mindis = 0x3f3f3f3f;
+    for (; it != wall.end(); ++it) {
+        mindis = min(mindis, (*it).distance(pos));
     }
-    return ans;
+    return mindis;
 }
 
-double delay;
-//在起跳之后调用，左跳负，右跳正
-double dfs(int depth, block pos)
+//做一次跳跃经t秒后的位置
+double dojump_mindis = 0;
+inline block dojump(block pos, bool isLeft, double t, bool ignoreLimitInUp = false)
 {
-    if (depth == 0) {
-        return 0;
+    double w = pos.x2 - pos.x1, h = pos.y2 - pos.y1;
+    double x, y;
+    dojump_mindis = 0x3f3f3f3f;
+    //以一定频率检测碰撞
+    for (double tt = 0; tt <= t; tt += 0.05) {
+        if (tt > cannotJumpTime) {
+            ignoreLimitInUp = false;
+        }
+        x = pos.x1, y = pos.y1;
+        if (isLeft) {
+            x -= vx * tt;
+        } else {
+            x += vx * tt;
+        }
+        y += xy(tt);
+        if (y > height - h && (!ignoreLimitInUp)) {
+            dojump_mindis = 0;
+        }
+        if (x < 0 && (!ignoreLimitInUp)) {
+            x = 0;
+        }
+        if (x > width - 30 && (!ignoreLimitInUp)) {
+            x = width - 30;
+        }
+        dojump_mindis = min(dojump_mindis, getWallDis(block(x, y, x + w, y + h)));
     }
-    if (pos.x1 == -1) {
-        return 0;
-    }
-    block next;
-    double ans = 0;
-    double maxs = 0;
-    for (double s = startTime; s <= startTime * 2; s += 0.1) {
+    return block(x, y, x + w, y + h);
+}
 
-        next = passtime(pos, s);
-        next.vx = vx;
-        next.vy = vy;
-        double ret = dfs(depth - 1, next);
-        if (ans < ret) {
-            ans = ret;
-            maxs = s;
+double dfs_delay;
+bool dfs_isLeft;
+//在起跳之后调用，左跳负，右跳正
+//返回值为最从此处路径走的最大和墙距离
+double dfs(int depth, block pos, bool lastIsLeft, bool ignoreLimit = false)
+{
+    if (depth <= 0) {
+        return 0;
+    }
+    double maxdis = 0;
+    double w = pos.x2 - pos.x1, h = pos.y2 - pos.y1;
+    //左跳
+    for (double s = cannotJumpTime; s <= cannotJumpTime * 2; s += 0.05) {
+        block next = dojump(pos, true, s);
+        double dis = dfs(depth - 1, next, true);
+        if (dojump_mindis <= 0) {
+            break;
+        }
+        if (maxdis < min(dojump_mindis, dis)) {
+            maxdis = min(dojump_mindis, dis);
+            dfs_delay = s;
+            dfs_isLeft = true;
         }
     }
-    for (double s = startTime; s < startTime * 2; s += 0.1) {
-        next = passtime(pos, s);
-        next.vx = -vx;
-        next.vy = vy;
-        double ret = dfs(depth - 1, next);
-        if (ans < ret) {
-            ans = ret;
-            maxs = -s;
+    //right
+    for (double s = cannotJumpTime; s <= cannotJumpTime * 2; s += 0.05) {
+        block next = dojump(pos, false, s);
+        double dis = dfs(depth - 1, next, false);
+        if (dojump_mindis <= 0) {
+            break;
+        }
+        if (maxdis < min(dojump_mindis, dis)) {
+            maxdis = min(dojump_mindis, dis);
+            dfs_delay = s;
+            dfs_isLeft = false;
         }
     }
-    delay = maxs;
-    return ans;
+    return maxdis;
 }
 
 //x数值表示距上次起跳经过的秒数，符号左跳负，右跳正(x)
+//返回的值为距上次起跳应延迟跳的秒数+1，符号左跳负，右跳正
 double exec(double x)
 {
     //读图
@@ -295,19 +300,49 @@ double exec(double x)
     double maxs = 0;
     bool lastIsLeft = (x < 0);
     x = abs(x);
-    double xy = vy * x + g * x * x / 2;
-    man = {
-        man.x1 + (lastIsLeft ? vx * x : -vx * x),
-        man.y1 - xy,
-        man.x2 - vx * x,
-        man.y2 - xy,
-        vy - g * x,
-        lastIsLeft ? -vx : vx,
-    };
     cout << "man:" << man.x1 << " " << man.y1 << endl;
-    dfs(3, man);
-    cout << delay << endl;
-    return delay;
+    man.y1 -= xy(x), man.y2 -= xy(x);
+    if (lastIsLeft)
+        man.x1 += vx * x, man.x2 += vx * x;
+    else
+        man.x1 -= vx * x, man.x2 -= vx * x;
+    double ans = 0;
+    double maxdis = 0;
+    /*if (LastIsLeft) {
+        for (double t = cannotJumpTime; t < cannotJumpTime * 2; t += 0.05) {
+            block next = dojump(man, true, t, true);
+            if (dojump_mindis <= 0) {
+                break;
+            }
+            double ret = dfs(3, next, true);
+            if (min(dojump_mindis, ret) > maxdis) {
+                maxdis = min(dojump_mindis, ret);
+                ans = t;
+                isLeft = true;
+            }
+        }
+    } else {
+        for (double t = cannotJumpTime; t < cannotJumpTime * 2; t += 0.05) {
+            block next = dojump(man, false, t, true);
+            if (dojump_mindis <= 0) {
+                break;
+            }
+            double ret = dfs(3, next, false);
+            if (min(dojump_mindis, ret) > maxdis) {
+                maxdis = min(dojump_mindis, ret);
+                ans = t;
+                isLeft = false;
+            }
+        }
+    }*/
+    bool isLeft;
+    dfs(3, man, lastIsLeft, true);
+    ans = dfs_delay;
+    isLeft = dfs_isLeft;
+    cout << ans << endl;
+    cout << isLeft << endl;
+    ans += 1;
+    return isLeft ? -ans : ans;
 }
 
 void test()

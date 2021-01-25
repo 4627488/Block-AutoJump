@@ -37,6 +37,8 @@ if __name__ == "__main__":
     # pyautogui.click(left+334, top+626)
     last = time.time()
     isleft = False
+    pyautogui.click(left+334, top+626)
+    time.sleep(0.85)
     while True:
         # 截图
         saveDC.SelectObject(saveBitMap)
@@ -59,7 +61,7 @@ if __name__ == "__main__":
             # left
             isleft = True
             pyautogui.click(left+134, top+626)
-        time.sleep(0.84)
+        time.sleep(0.85)
         last = time.time()
         x, y = pyautogui.position()
         if x < left or x > right or y < top or y > bottom:
