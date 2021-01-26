@@ -49,8 +49,7 @@ if __name__ == "__main__":
             ret = somecode.exec(-(time.time()-last))
         else:
             ret = somecode.exec((time.time()-last))
-        this = time.time()
-        delay = last+ret-this
+        delay = last+abs(ret)-1-time.time()
         if delay > 0:
             time.sleep(delay)
         if ret > 0:
@@ -61,8 +60,8 @@ if __name__ == "__main__":
             # left
             isleft = True
             pyautogui.click(left+134, top+626)
-        time.sleep(0.85)
         last = time.time()
+        time.sleep(0.8)
         x, y = pyautogui.position()
         if x < left or x > right or y < top or y > bottom:
             print('光标不在窗口，退出')

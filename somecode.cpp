@@ -101,7 +101,7 @@ inline bool isred(int r, int g, int b)
 block man;
 int height, width;
 const double vx = 75.97137;
-const double cannotJumpTime = 0.85;
+const double cannotJumpTime = 0.8;
 
 //表示起跳t秒后y的偏移量
 inline double xy(double t)
@@ -254,32 +254,34 @@ bool dfs_isLeft;
 double dfs(int depth, block pos, bool lastIsLeft, bool ignoreLimit = false)
 {
     if (depth <= 0) {
-        return 0;
+        return 0x3f3f3f3f;
     }
     double maxdis = 0;
     double w = pos.x2 - pos.x1, h = pos.y2 - pos.y1;
     //左跳
     for (double s = cannotJumpTime; s <= cannotJumpTime * 2; s += 0.05) {
-        block next = dojump(pos, true, s);
-        double dis = dfs(depth - 1, next, true);
+        block next = dojump(pos, true, s, ignoreLimit);
         if (dojump_mindis <= 0) {
             break;
         }
-        if (maxdis < min(dojump_mindis, dis)) {
-            maxdis = min(dojump_mindis, dis);
+        double this_mindis = dojump_mindis + 2 * (pos.y1 - next.y1);
+        double dis = dfs(depth - 1, next, true);
+        if (maxdis < min(this_mindis, dis)) {
+            maxdis = min(this_mindis, dis);
             dfs_delay = s;
             dfs_isLeft = true;
         }
     }
     //right
     for (double s = cannotJumpTime; s <= cannotJumpTime * 2; s += 0.05) {
-        block next = dojump(pos, false, s);
-        double dis = dfs(depth - 1, next, false);
+        block next = dojump(pos, false, s, ignoreLimit);
         if (dojump_mindis <= 0) {
             break;
         }
-        if (maxdis < min(dojump_mindis, dis)) {
-            maxdis = min(dojump_mindis, dis);
+        double this_mindis = dojump_mindis + 2 * (pos.y1 - next.y1);
+        double dis = dfs(depth - 1, next, false);
+        if (maxdis < min(this_mindis, dis)) {
+            maxdis = min(this_mindis, dis);
             dfs_delay = s;
             dfs_isLeft = false;
         }
@@ -306,6 +308,7 @@ double exec(double x)
         man.x1 += vx * x, man.x2 += vx * x;
     else
         man.x1 -= vx * x, man.x2 -= vx * x;
+    cout << "man:" << man.x1 << " " << man.y1 << endl;
     double ans = 0;
     double maxdis = 0;
     /*if (LastIsLeft) {
